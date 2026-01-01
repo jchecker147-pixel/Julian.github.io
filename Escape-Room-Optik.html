@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kugel-Challenge: Escape Room</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #111;
+    font-family: 'Courier New', Courier, monospace;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+canvas {
+    background: radial-gradient(circle at 50% 50%, #222, #000 80%);
+    border: 2px solid #fff;
+    touch-action: none;
+    display: none;
+}
+#info {
+    margin: 10px;
+    font-size: 18px;
+    display: none;
+}
+#intro {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    text-align: center;
+}
+#intro h1 {
+    font-size: 48px;
+    color: gold;
+    margin-bottom: 20px;
+    text-shadow: 2px 2px 10px black;
+}
+#intro button {
+    font-size: 24px;
+    padding: 10px 20px;
+    cursor: pointer;
+    background-color: darkred;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    box-shadow: 2px 2px 8px black;
+}
+#intro p {
+    font-size: 20px;
+    margin-bottom: 30px;
+}
+</style>
+</head>
+<body>
+
+<div id="intro">
+    <h1>Kugel-Challenge: Escape Room</h1>
+    <p>Führe die leuchtende Kugel durch den Raum, treffe das goldene Ziel und sammle Punkte.<br>
+    Hindernisse wie Kisten und Möbel blockieren den Weg. Überlebe so viele Level wie möglich!</p>
+    <button id="startBtn">Start</button>
+</div>
+
+<div id="info">Level: 1 | Schwierigkeit: Easy | Punkte: 0 | Zeit: 30 | Highscore: 0</div>
+<canvas id="gameCanvas" width="600" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const infoDiv = document.getElementById('info');
+const introDiv = document.getElementById('intro');
+const startBtn = document.getElementById('startBtn');
+
+let level = 1;
+let difficulty = 'Easy';
+let score = 0;
+let highscore = localStorage.getItem('highscore') || 0;
+let timeLeft = 30;
+let ball = { x: 50, y: 50, radius: 15, speed: 5 };
+let hole = { x: 300, y: 300, radius: 25 };
+let obstacles = [];
+let keys = {};
+let touchStart = null;
+let gameStarted = false;
+let effects = [];
+
+startBtn.addEventListener('click', () => {
+    introDiv.style.display = 'none';
+    canvas.style.display = 'block';
+    infoDiv.style.display = 'block';
+    gameStarted = true;
+});
+
+document.addEventListener('keydown', e => keys[e.key] = true);
+document.addEventListener('keyup', e => keys[e.key] = false);
+
+canvas.addEventListener('touchstart', e => { touchStart = e.touches[0]; });
+canvas.addEventListener('touchmove', e => {
+    if(!touchStart) return;
+    let touch = e.touches[0];
+    let dx = touch.clientX - touchStart.clientX;
+    let dy = touch.clientY - touchStart.clientY;
+    moveBall(dx * 0.5, dy * 0.5);
+    touchStart = touch;
+});
+
+function moveBall(dx, dy) {
+    let newX = ball.x + dx;
+    let newY = ball.y + dy;
+    if(!checkObstacleCollision(newX, newY)) {
+        ball.x = Math.max(ball.radius, Math.min(canvas.width - ball.radius, newX));
+        ball.y = Math.max(ball.radius, Math.min(canvas.height - ball.radius, newY));
+    }
+}
+
+function checkObstacleCollision(x, y) {
+    for(let obs of obstacles) {
+        if(x + ball.radius > obs.x && x - ball.radius < obs.x + obs.width &&
+           y + ball.radius > obs.y && y - ball.radius < obs.y + obs.height) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function update() {
+    if(!gameStarted) return;
+
+    if(keys['ArrowUp']) moveBall(0, -ball.speed);
+    if(keys['ArrowDown']) moveBall(0, ball.speed);
+    if(keys['ArrowLeft']) moveBall(-ball.speed, 0);
+    if(keys['ArrowRight']) moveBall(ball.speed, 0);
+
+    let dx = ball.x - hole.x;
+    let dy = ball.y - hole.y;
+    let distance = Math.sqrt(dx*dx + dy*dy);
+
+    if(distance < ball.radius + hole.radius) {
+        score += Math.floor(timeLeft * 10);
+        if(score > highscore) {
+            highscore = score;
+            localStorage.setItem('highscore', highscore);
+        }
+        addEffect(hole.x, hole.y);
+        nextLevel();
+    }
+
+    timeLeft -= 1/60;
+    if(timeLeft <= 0) {
+        alert("Zeit vorbei! Punkte: " + score);
+        resetGame();
+    }
+
+    // Effekte aktualisieren
+    effects.forEach(e => e.life--);
+    effects = effects.filter(e => e.life > 0);
+}
+
+function addEffect(x, y) {
+    for(let i=0; i<20; i++) {
+        effects.push({
+            x: x,
+            y: y,
+            dx: (Math.random()-0.5)*4,
+            dy: (Math.random()-0.5)*4,
+            radius: Math.random()*3+2,
+            life: 30
+        });
+    }
+}
+
+function nextLevel() {
+    level++;
+    timeLeft = 30;
+    difficulty = getDifficulty(level);
+    ball.speed = Math.min(5 + level*0.2, 15);
+    ball.x = Math.random() * (canvas.width - 40) + 20;
+    ball.y = Math.random() * (canvas.height - 40) + 20;
+    hole.x = Math.random() * (canvas.width - 60) + 30;
+    hole.y = Math.random() * (canvas.height - 60) + 30;
+    generateObstacles();
+    updateInfo();
+}
+
+function getDifficulty(level) {
+    if(level <= 3) return 'Easy';
+    if(level <= 6) return 'Medium';
+    if(level <= 10) return 'Hard';
+    if(level <= 15) return 'Extreme';
+    return 'Insane';
+}
+
+function generateObstacles() {
+    obstacles = [];
+    let count = Math.min(level, 10);
+    for(let i = 0; i < count; i++) {
+        obstacles.push({
+            x: Math.random() * (canvas.width - 60),
+            y: Math.random() * (canvas.height - 60),
+            width: 40,
+            height: 40
+        });
+    }
+}
+
+function resetGame() {
+    level = 1;
+    score = 0;
+    timeLeft = 30;
+    ball.speed = 5;
+    ball.x = 50;
+    ball.y = 50;
+    hole.x = 300;
+    hole.y = 300;
+    generateObstacles();
+    updateInfo();
+    gameStarted = false;
+    introDiv.style.display = 'flex';
+    canvas.style.display = 'none';
+    infoDiv.style.display = 'none';
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Lichtschein um die Kugel
+    let gradient = ctx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, 50);
+    gradient.addColorStop(0, 'rgba(255,255,200,0.8)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // Loch (goldenes Tor)
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI*2);
+    ctx.fillStyle = 'gold';
+    ctx.shadowColor = 'yellow';
+    ctx.shadowBlur = 20;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.closePath();
+
+    // Kugel (leuchtend)
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2);
+    ctx.fillStyle = 'orange';
+    ctx.shadowColor = 'orange';
+    ctx.shadowBlur = 15;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.closePath();
+
+    // Hindernisse (Kisten/Möbel)
+    ctx.fillStyle = '#654321';
+    for(let obs of obstacles) {
+        ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+    }
+
+    // Level-Up Effekte
+    effects.forEach(e => {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2);
+        ctx.fillStyle = 'yellow';
+        ctx.fill();
+        ctx.closePath();
+        e.x += e.dx;
+        e.y += e.dy;
+    });
+}
+
+function updateInfo() {
+    infoDiv.textContent = `Level: ${level} | Schwierigkeit: ${difficulty} | Punkte: ${score} | Zeit: ${Math.floor(timeLeft)} | Highscore: ${highscore}`;
+}
+
+function gameLoop() {
+    update();
+    draw();
+    if(gameStarted) updateInfo();
+    requestAnimationFrame(gameLoop);
+}
+
+generateObstacles();
+gameLoop();
+</script>
+</body>
+</html>
